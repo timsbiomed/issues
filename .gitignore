@@ -168,3 +168,10 @@ Temporary Items
 
 # Helm Chart dependencies
 **/charts/*.tgz
+
+# Custom
+/_dev/
+/env/
+/venv/
+_archive/
+/data/
