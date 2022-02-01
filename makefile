@@ -1,6 +1,8 @@
 # Notes
 # 1. Needed to change -f flag (copy pasted these commands from docs) to -v
-FILES_SNOMED=./data/value_sets/terminologies/SNOMED/SnomedCT_RF2Release_INT_20160131.zip  # TODO: awaiting permission to dl this file
+#FILES_SNOMED=./data/value_sets/terminologies/SNOMED/SnomedCT_RF2Release_INT_20160131.zip  # docs had it named this
+#FILES_SNOMED=./data/value_sets/terminologies/SNOMED/SnomedCT_RF2Release_US1000124_20160301.zip
+FILES_SNOMED=./data/value_sets/terminologies/SNOMED/SnomedCT_USEditionRF2_PRODUCTION_20210901T120000Z.zip
 FILES_LOINC1=./data/value_sets/terminologies/LOINC/Loinc_2.71_MultiAxialHierarchy_3.5.zip
 
 # TODO: LOINC Got err missing files:
@@ -30,10 +32,8 @@ deploy:
 
 upload-terminology: upload-snomed upload-loinc upload-icd10cm
 
-#upload-snomed:
-#	hapi-fhir-cli upload-terminology -d ${FILES_SNOMED} -v ${FHIR_VERSION} -t ${UPLOAD_ENDPOINT} -u http://snomed.info/sct
 upload-snomed:
-	echo Awaiting permission to download files.
+	hapi-fhir-cli upload-terminology -d ${FILES_SNOMED} -v ${FHIR_VERSION} -t ${UPLOAD_ENDPOINT} -u http://snomed.info/sct
 
 upload-loinc:
 	hapi-fhir-cli upload-terminology -d ${FILES_LOINC1} -d ${FILES_LOINC2} -v ${FHIR_VERSION} -t ${UPLOAD_ENDPOINT} -u http://loinc.org
