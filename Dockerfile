@@ -1,26 +1,49 @@
-FROM hapiproject/hapi:base as build-hapi
-
-ARG HAPI_FHIR_URL=https://github.com/jamesagnew/hapi-fhir/
-ARG HAPI_FHIR_BRANCH=master
-ARG HAPI_FHIR_STARTER_URL=https://github.com/hapifhir/hapi-fhir-jpaserver-starter/
-ARG HAPI_FHIR_STARTER_BRANCH=master
-
-RUN git clone --branch ${HAPI_FHIR_BRANCH} ${HAPI_FHIR_URL}
-WORKDIR /tmp/hapi-fhir/
-RUN /tmp/apache-maven-3.6.2/bin/mvn dependency:resolve
-RUN /tmp/apache-maven-3.6.2/bin/mvn install -DskipTests
-
-WORKDIR /tmp
-RUN git clone --branch ${HAPI_FHIR_STARTER_BRANCH} ${HAPI_FHIR_STARTER_URL}
-
+FROM maven:3.8-openjdk-17-slim as build-hapi
 WORKDIR /tmp/hapi-fhir-jpaserver-starter
-RUN /tmp/apache-maven-3.6.2/bin/mvn clean install -DskipTests
 
-FROM tomcat:9-jre11
+ARG OPENTELEMETRY_JAVA_AGENT_VERSION=1.17.0
+RUN curl -LSsO https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OPENTELEMETRY_JAVA_AGENT_VERSION}/opentelemetry-javaagent.jar
 
-RUN mkdir -p /data/hapi/lucenefiles && chmod 775 /data/hapi/lucenefiles
-COPY --from=build-hapi /tmp/hapi-fhir-jpaserver-starter/target/*.war /usr/local/tomcat/webapps/
+COPY pom.xml .
+COPY server.xml .
+RUN mvn -ntp dependency:go-offline
 
-EXPOSE 8080
+COPY src/ /tmp/hapi-fhir-jpaserver-starter/src/
+RUN mvn clean install -DskipTests -Djdk.lang.Process.launchMechanism=vfork
 
-CMD ["catalina.sh", "run"]
+FROM build-hapi AS build-distroless
+RUN mvn package spring-boot:repackage -Pboot
+RUN mkdir /app && cp /tmp/hapi-fhir-jpaserver-starter/target/ROOT.war /app/main.war
+
+
+########### bitnami tomcat version is suitable for debugging and comes with a shell
+########### it can be built using eg. `docker build --target tomcat .`
+FROM bitnami/tomcat:9.0 as tomcat
+
+RUN rm -rf /opt/bitnami/tomcat/webapps/ROOT && \
+    mkdir -p /opt/bitnami/hapi/data/hapi/lucenefiles && \
+    chmod 775 /opt/bitnami/hapi/data/hapi/lucenefiles
+
+USER root
+RUN mkdir -p /target && chown -R 1001:1001 target
+USER 1001
+
+COPY --chown=1001:1001 catalina.properties /opt/bitnami/tomcat/conf/catalina.properties
+COPY --chown=1001:1001 server.xml /opt/bitnami/tomcat/conf/server.xml
+COPY --from=build-hapi --chown=1001:1001 /tmp/hapi-fhir-jpaserver-starter/target/ROOT.war /opt/bitnami/tomcat/webapps/ROOT.war
+COPY --from=build-hapi --chown=1001:1001 /tmp/hapi-fhir-jpaserver-starter/opentelemetry-javaagent.jar /app
+
+ENV ALLOW_EMPTY_PASSWORD=yes
+
+########### distroless brings focus on security and runs on plain spring boot - this is the default image
+FROM gcr.io/distroless/java17-debian11:nonroot as default
+# 65532 is the nonroot user's uid
+# used here instead of the name to allow Kubernetes to easily detect that the container
+# is running as a non-root (uid != 0) user.
+USER 65532:65532
+WORKDIR /app
+
+COPY --chown=nonroot:nonroot --from=build-distroless /app /app
+COPY --chown=nonroot:nonroot --from=build-hapi /tmp/hapi-fhir-jpaserver-starter/opentelemetry-javaagent.jar /app
+
+CMD ["/app/main.war"]
