@@ -1,7 +1,7 @@
 version: "3"
 services:
   hapi-fhir-jpaserver-start:
-    build: .
+    image: chrisroederucdenver/hapi-fhir-jpaserver-starter:v6.1-m1
     container_name: hapi-fhir-jpaserver-start
     restart: on-failure
     ports:
