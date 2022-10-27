@@ -1,9 +1,25 @@
 FROM maven:3.8-openjdk-17-slim as build-hapi
 WORKDIR /tmp/hapi-fhir-jpaserver-starter
 
+
+
+# Dockerfile for building a hapi-fhir-jpaserver-starter image
+# Java 17
+# -- no version spec. in here. It uses what you have in your pom
+LABEL maintainer="chris.roeder@cuanschutz.edu"
+LABEL version="6.2-SS"
+LABEL description="This Dockerfile builds HAPI FHIR, see details here: http://hapifhir.io/, http://hl7.org/fhir/"
+
+## 2022-10-27 18:11:10.702 [http-nio-8080-exec-5] INFO  c.u.f.j.p.TerminologyUploaderProvider 
+##    [TerminologyUploaderProvider.java:377] Reading in local file: 
+##    /var/folders/23/qym0m8694_10w43smlynw6s80000gp/T/hapi-fhir-cli9732175235774178258.zip
+
+
+# Java telemetry?
 ARG OPENTELEMETRY_JAVA_AGENT_VERSION=1.17.0
 RUN curl -LSsO https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v${OPENTELEMETRY_JAVA_AGENT_VERSION}/opentelemetry-javaagent.jar
 
+# Hapi-Fhir
 COPY pom.xml .
 COPY server.xml .
 RUN mvn -ntp dependency:go-offline
@@ -16,34 +32,16 @@ RUN mvn package spring-boot:repackage -Pboot
 RUN mkdir /app && cp /tmp/hapi-fhir-jpaserver-starter/target/ROOT.war /app/main.war
 
 
-########### bitnami tomcat version is suitable for debugging and comes with a shell
-########### it can be built using eg. `docker build --target tomcat .`
-FROM bitnami/tomcat:9.0 as tomcat
-
-RUN rm -rf /opt/bitnami/tomcat/webapps/ROOT && \
-    mkdir -p /opt/bitnami/hapi/data/hapi/lucenefiles && \
-    chmod 775 /opt/bitnami/hapi/data/hapi/lucenefiles
-
-USER root
-RUN mkdir -p /target && chown -R 1001:1001 target
-USER 1001
-
-COPY --chown=1001:1001 catalina.properties /opt/bitnami/tomcat/conf/catalina.properties
-COPY --chown=1001:1001 server.xml /opt/bitnami/tomcat/conf/server.xml
-COPY --from=build-hapi --chown=1001:1001 /tmp/hapi-fhir-jpaserver-starter/target/ROOT.war /opt/bitnami/tomcat/webapps/ROOT.war
-COPY --from=build-hapi --chown=1001:1001 /tmp/hapi-fhir-jpaserver-starter/opentelemetry-javaagent.jar /app
-
-ENV ALLOW_EMPTY_PASSWORD=yes
-
-########### distroless brings focus on security and runs on plain spring boot - this is the default image
+# distroless?
 FROM gcr.io/distroless/java17-debian11:nonroot as default
 # 65532 is the nonroot user's uid
 # used here instead of the name to allow Kubernetes to easily detect that the container
 # is running as a non-root (uid != 0) user.
 USER 65532:65532
 WORKDIR /app
-
 COPY --chown=nonroot:nonroot --from=build-distroless /app /app
 COPY --chown=nonroot:nonroot --from=build-hapi /tmp/hapi-fhir-jpaserver-starter/opentelemetry-javaagent.jar /app
 
+
+# Start the server from jshell using the -Pboot image built above
 CMD ["/app/main.war"]
